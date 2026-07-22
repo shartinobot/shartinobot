@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ربات شرطینو - نسخه نهایی
+ربات شرطینو - نسخه نهایی با تمام راهکارهای واریز
 """
 
 import os
@@ -937,7 +937,7 @@ async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ======================== واریز ========================
+# ======================== واریز (با تمام راهکارها) ========================
 async def deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -967,6 +967,7 @@ async def deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def deposit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """راهکار 1: ویرایش همان پیام با آدرس ولت در متن"""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
@@ -984,6 +985,7 @@ async def deposit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user.get("has_deposited", False):
         bonus_text = f"🎁 **هدیه واریز اول: ۵۰٪ (تا سقف ۵ میلیون تومان)**\n\n"
     
+    # متن کامل با آدرس ولت در متن (قابل کپی با لمس)
     text = f"""💳 **صفحه پرداخت**
 
 {bonus_text}
@@ -992,7 +994,16 @@ async def deposit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ❌ **تا اطلاع ثانوی غیرفعال می‌باشد.**
 
 ━━━━━━━━━━━━━━━━━━━━━━
-📌 **برای کپی کردن آدرس ولت، روی دکمه‌های زیر کلیک کنید:**
+🟣 **آدرس ولت ترون (TRX-TRC20):**
+`{trx_wallet}`
+
+📋 **متن بالا را لمس کنید تا کپی شود**
+
+━━━━━━━━━━━━━━━━━━━━━━
+🟢 **آدرس ولت تتر (USDT-TRC20):**
+`{usdt_wallet}`
+
+📋 **متن بالا را لمس کنید تا کپی شود**
 
 ━━━━━━━━━━━━━━━━━━━━━━
 📌 **نکات مهم:**
@@ -1000,39 +1011,72 @@ async def deposit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • حتماً از شبکه **TRC20** استفاده کنید
 • پس از واریز، حتماً اسکرین‌شات را برای ادمین ارسال کنید
 • واریزها به صورت دستی تأیید می‌شوند
-• در صورت مشکل، با پشتیبانی تماس بگیرید
 
 🆘 پشتیبانی: {support}"""
     
+    # راهکار 1: ویرایش پیام فعلی
     keyboard = [
-        [InlineKeyboardButton("🟣 کپی ولت ترون (TRX)", callback_data="copy_trx")],
-        [InlineKeyboardButton("🟢 کپی ولت تتر (USDT)", callback_data="copy_usdt")],
+        [InlineKeyboardButton("📋 کپی ولت با دکمه (راهکار ۲)", callback_data="copy_wallets")],
         [InlineKeyboardButton("✅ واریز انجام شد (ارسال تیکت)", callback_data="deposit_done")],
         [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
     ]
     
-    await query.message.reply_text(
+    await query.edit_message_text(
         text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
+
+async def copy_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """راهکار 2: نمایش آدرس ولت در دکمه‌های جداگانه"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
     
-    try:
-        await query.delete_message()
-    except:
-        pass
+    trx_wallet = admin_config.get("trx_wallet", TRX_WALLET)
+    usdt_wallet = admin_config.get("usdt_wallet", USDT_WALLET)
+    
+    # راهکار 2: ارسال پیام جدید با دکمه‌های کپی
+    wallet_text = f"""📋 **آدرس ولت‌ها**
+
+برای کپی کردن هر آدرس، روی دکمه مربوطه کلیک کنید:
+
+🟣 **ولت ترون (TRX-TRC20)**
+🟢 **ولت تتر (USDT-TRC20)**"""
+    
+    keyboard = [
+        [InlineKeyboardButton("🟣 کپی ولت ترون (TRX)", callback_data="copy_trx")],
+        [InlineKeyboardButton("🟢 کپی ولت تتر (USDT)", callback_data="copy_usdt")],
+        [InlineKeyboardButton("🔙 بازگشت به صفحه پرداخت", callback_data="deposit_confirm")]
+    ]
+    
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=wallet_text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 async def copy_trx(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """راهکار 3: نمایش آدرس در Alert با قابلیت کپی"""
     query = update.callback_query
     await query.answer()
     trx_wallet = admin_config.get("trx_wallet", TRX_WALLET)
-    await query.answer(f"✅ آدرس ولت ترون کپی شد:\n{trx_wallet}", show_alert=True)
+    # نمایش در Alert (قابل کپی)
+    await query.answer(
+        f"✅ آدرس ولت ترون:\n{trx_wallet}\n\n(متن را انتخاب و کپی کنید)", 
+        show_alert=True
+    )
 
 async def copy_usdt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """راهکار 3: نمایش آدرس در Alert با قابلیت کپی"""
     query = update.callback_query
     await query.answer()
     usdt_wallet = admin_config.get("usdt_wallet", USDT_WALLET)
-    await query.answer(f"✅ آدرس ولت تتر کپی شد:\n{usdt_wallet}", show_alert=True)
+    await query.answer(
+        f"✅ آدرس ولت تتر:\n{usdt_wallet}\n\n(متن را انتخاب و کپی کنید)", 
+        show_alert=True
+    )
 
 async def deposit_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1935,6 +1979,7 @@ def main():
     app.add_handler(CallbackQueryHandler(my_account, pattern="^my_account$"))
     app.add_handler(CallbackQueryHandler(deposit, pattern="^deposit$"))
     app.add_handler(CallbackQueryHandler(deposit_confirm, pattern="^deposit_confirm$"))
+    app.add_handler(CallbackQueryHandler(copy_wallets, pattern="^copy_wallets$"))
     app.add_handler(CallbackQueryHandler(copy_trx, pattern="^copy_trx$"))
     app.add_handler(CallbackQueryHandler(copy_usdt, pattern="^copy_usdt$"))
     app.add_handler(CallbackQueryHandler(deposit_done, pattern="^deposit_done$"))
