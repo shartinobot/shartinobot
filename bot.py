@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ربات شرطینو - نسخه نهایی با تمام راهکارهای واریز
+ربات شرطینو - نسخه نهایی
 """
 
 import os
@@ -143,10 +143,6 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     user = get_user(user_id)
-    
-    if user.get("banned", False):
-        await query.edit_message_text("⛔ حساب شما مسدود شده است!")
-        return
     
     keyboard = [
         [InlineKeyboardButton("🎲 شروع بازی", callback_data="game_menu")],
@@ -334,10 +330,6 @@ async def dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     user = get_user(user_id)
-    
-    if user.get("banned", False):
-        await query.edit_message_text("⛔ حساب شما مسدود شده است!")
-        return
     
     keyboard = [
         [InlineKeyboardButton("۱۰,۰۰۰", callback_data="dice_bet_10000"),
@@ -535,10 +527,6 @@ async def coin_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     user = get_user(user_id)
     
-    if user.get("banned", False):
-        await query.edit_message_text("⛔ حساب شما مسدود شده است!")
-        return
-    
     keyboard = [
         [InlineKeyboardButton("۱۰,۰۰۰", callback_data="coin_bet_10000"),
          InlineKeyboardButton("۲۰,۰۰۰", callback_data="coin_bet_20000")],
@@ -657,10 +645,6 @@ async def slot_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     user = get_user(user_id)
-    
-    if user.get("banned", False):
-        await query.edit_message_text("⛔ حساب شما مسدود شده است!")
-        return
     
     keyboard = [
         [InlineKeyboardButton("۱۰,۰۰۰", callback_data="slot_bet_10000"),
@@ -792,10 +776,6 @@ async def football_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     user = get_user(user_id)
     
-    if user.get("banned", False):
-        await query.edit_message_text("⛔ حساب شما مسدود شده است!")
-        return
-    
     keyboard = [
         [InlineKeyboardButton("۱۰,۰۰۰", callback_data="football_bet_10000"),
          InlineKeyboardButton("۲۰,۰۰۰", callback_data="football_bet_20000")],
@@ -913,10 +893,6 @@ async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     user = get_user(user_id)
     
-    if user.get("banned", False):
-        await query.edit_message_text("⛔ حساب شما مسدود شده است!")
-        return
-    
     total_bets = user.get("total_bets", 0)
     wins = user.get("total_wins", 0)
     losses = user.get("total_losses", 0)
@@ -937,16 +913,12 @@ async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ======================== واریز (با تمام راهکارها) ========================
+# ======================== واریز (نسخه نهایی) ========================
 async def deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     user = get_user(user_id)
-    
-    if user.get("banned", False):
-        await query.edit_message_text("⛔ حساب شما مسدود شده است!")
-        return
     
     text = f"""💳 **واریز وجه**
 
@@ -967,15 +939,10 @@ async def deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def deposit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """راهکار 1: ویرایش همان پیام با آدرس ولت در متن"""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     user = get_user(user_id)
-    
-    if user.get("banned", False):
-        await query.edit_message_text("⛔ حساب شما مسدود شده است!")
-        return
     
     trx_wallet = admin_config.get("trx_wallet", TRX_WALLET)
     usdt_wallet = admin_config.get("usdt_wallet", USDT_WALLET)
@@ -985,7 +952,9 @@ async def deposit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user.get("has_deposited", False):
         bonus_text = f"🎁 **هدیه واریز اول: ۵۰٪ (تا سقف ۵ میلیون تومان)**\n\n"
     
-    # متن کامل با آدرس ولت در متن (قابل کپی با لمس)
+    # ایجاد لیست آیدی ادمین‌ها
+    admin_ids_text = "\n".join([f"🆔 `{admin_id}`" for admin_id in ADMIN_IDS])
+    
     text = f"""💳 **صفحه پرداخت**
 
 {bonus_text}
@@ -1012,70 +981,32 @@ async def deposit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • پس از واریز، حتماً اسکرین‌شات را برای ادمین ارسال کنید
 • واریزها به صورت دستی تأیید می‌شوند
 
+━━━━━━━━━━━━━━━━━━━━━━
+📌 **آیدی ادمین‌ها برای ارسال اسکرین‌شات:**
+
+{admin_ids_text}
+
+📋 **روی آیدی کلیک کنید و اسکرین‌شات را ارسال کنید**
+
 🆘 پشتیبانی: {support}"""
     
-    # راهکار 1: ویرایش پیام فعلی
     keyboard = [
-        [InlineKeyboardButton("📋 کپی ولت با دکمه (راهکار ۲)", callback_data="copy_wallets")],
-        [InlineKeyboardButton("✅ واریز انجام شد (ارسال تیکت)", callback_data="deposit_done")],
+        [InlineKeyboardButton("✅ واریز انجام شد", callback_data="deposit_done")],
         [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
     ]
     
-    await query.edit_message_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
-
-async def copy_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """راهکار 2: نمایش آدرس ولت در دکمه‌های جداگانه"""
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
+    # حذف پیام قبلی
+    try:
+        await query.delete_message()
+    except:
+        pass
     
-    trx_wallet = admin_config.get("trx_wallet", TRX_WALLET)
-    usdt_wallet = admin_config.get("usdt_wallet", USDT_WALLET)
-    
-    # راهکار 2: ارسال پیام جدید با دکمه‌های کپی
-    wallet_text = f"""📋 **آدرس ولت‌ها**
-
-برای کپی کردن هر آدرس، روی دکمه مربوطه کلیک کنید:
-
-🟣 **ولت ترون (TRX-TRC20)**
-🟢 **ولت تتر (USDT-TRC20)**"""
-    
-    keyboard = [
-        [InlineKeyboardButton("🟣 کپی ولت ترون (TRX)", callback_data="copy_trx")],
-        [InlineKeyboardButton("🟢 کپی ولت تتر (USDT)", callback_data="copy_usdt")],
-        [InlineKeyboardButton("🔙 بازگشت به صفحه پرداخت", callback_data="deposit_confirm")]
-    ]
-    
+    # ارسال پیام جدید
     await context.bot.send_message(
         chat_id=user_id,
-        text=wallet_text,
+        text=text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
-    )
-
-async def copy_trx(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """راهکار 3: نمایش آدرس در Alert با قابلیت کپی"""
-    query = update.callback_query
-    await query.answer()
-    trx_wallet = admin_config.get("trx_wallet", TRX_WALLET)
-    # نمایش در Alert (قابل کپی)
-    await query.answer(
-        f"✅ آدرس ولت ترون:\n{trx_wallet}\n\n(متن را انتخاب و کپی کنید)", 
-        show_alert=True
-    )
-
-async def copy_usdt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """راهکار 3: نمایش آدرس در Alert با قابلیت کپی"""
-    query = update.callback_query
-    await query.answer()
-    usdt_wallet = admin_config.get("usdt_wallet", USDT_WALLET)
-    await query.answer(
-        f"✅ آدرس ولت تتر:\n{usdt_wallet}\n\n(متن را انتخاب و کپی کنید)", 
-        show_alert=True
     )
 
 async def deposit_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1084,6 +1015,7 @@ async def deposit_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     user = get_user(user_id)
     
+    # ارسال به ادمین‌ها
     for admin_id in ADMIN_IDS:
         try:
             await context.bot.send_message(
@@ -1093,19 +1025,14 @@ async def deposit_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🆔 آیدی: {user_id}\n"
                 f"📅 تاریخ: {datetime.now().strftime('%Y/%m/%d - %H:%M')}\n\n"
                 f"⚠️ کاربر اعلام کرده که واریز انجام شده است.\n"
-                f"لطفاً تراکنش را بررسی و تأیید کنید.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ تأیید واریز", callback_data=f"confirm_deposit_{user_id}")],
-                    [InlineKeyboardButton("❌ رد واریز", callback_data=f"reject_deposit_{user_id}")]
-                ])
+                f"لطفاً تراکنش را بررسی و تأیید کنید."
             )
-        except:
-            pass
+        except Exception as e:
+            print(f"خطا در ارسال به ادمین {admin_id}: {e}")
     
     await query.edit_message_text(
         f"✅ **درخواست واریز شما ثبت شد!**\n\n"
-        f"🕒 درخواست شما به ادمین ارسال شد.\n"
-        f"پس از تأیید، موجودی شما افزایش می‌یابد.\n\n"
+        f"🕒 درخواست شما به ادمین ارسال شد.\n\n"
         f"📌 لطفاً اسکرین‌شات واریز را برای ادمین ارسال کنید.\n\n"
         f"🆘 پشتیبانی: {SUPPORT}",
         reply_markup=InlineKeyboardMarkup([
@@ -1113,117 +1040,12 @@ async def deposit_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
     )
 
-async def confirm_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.from_user.id not in ADMIN_IDS:
-        await query.answer("⛔ شما دسترسی به این بخش ندارید!", show_alert=True)
-        return
-    
-    parts = query.data.split("_")
-    user_id = int(parts[2])
-    
-    user = get_user(user_id)
-    
-    context.user_data["admin_deposit_user"] = user_id
-    context.user_data["admin_action"] = "admin_deposit_amount"
-    
-    await query.edit_message_text(
-        f"💰 **تأیید واریز**\n\n"
-        f"👤 کاربر: @{user['username'] or user_id}\n"
-        f"💰 موجودی فعلی: {user['balance']:,} تومان\n\n"
-        f"📌 مبلغ واریز را وارد کنید:"
-    )
-
-async def reject_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.from_user.id not in ADMIN_IDS:
-        await query.answer("⛔ شما دسترسی به این بخش ندارید!", show_alert=True)
-        return
-    
-    parts = query.data.split("_")
-    user_id = int(parts[2])
-    
-    try:
-        await context.bot.send_message(
-            user_id,
-            f"❌ **واریز شما رد شد!**\n\n"
-            f"لطفاً با پشتیبانی تماس بگیرید:\n{SUPPORT}",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
-            ])
-        )
-    except:
-        pass
-    
-    await query.edit_message_text(
-        f"❌ **واریز کاربر رد شد!**\n\n"
-        f"👤 کاربر: @{get_user(user_id)['username'] or user_id}"
-    )
-
-async def handle_admin_deposit_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        return
-    
-    try:
-        amount = int(update.message.text.strip())
-        if amount < 0:
-            await update.message.reply_text("❌ مبلغ نمی‌تواند منفی باشد.")
-            return
-        
-        target_id = context.user_data.get("admin_deposit_user")
-        if not target_id:
-            await update.message.reply_text("❌ خطا! کاربر مشخص نیست.")
-            return
-        
-        user = get_user(target_id)
-        user["balance"] += amount
-        user["has_deposited"] = True
-        add_transaction(target_id, amount, "deposit", f"واریز تأیید شده - {amount:,} تومان")
-        save_user(target_id, user)
-        
-        await update.message.reply_text(
-            f"✅ **واریز کاربر تأیید شد!**\n\n"
-            f"👤 کاربر: @{user['username'] or target_id}\n"
-            f"💰 مبلغ: {amount:,} تومان\n"
-            f"💰 موجودی جدید: {user['balance']:,} تومان"
-        )
-        
-        try:
-            await context.bot.send_message(
-                target_id,
-                f"✅ **واریز شما تأیید شد!**\n\n"
-                f"💰 مبلغ: {amount:,} تومان\n"
-                f"💰 موجودی جدید: {user['balance']:,} تومان\n\n"
-                f"🎉 از بازی‌های ما لذت ببرید!",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🎲 شروع بازی", callback_data="game_menu")],
-                    [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
-                ])
-            )
-        except:
-            pass
-        
-    except ValueError:
-        await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید.")
-    
-    context.user_data["admin_action"] = None
-    context.user_data["admin_deposit_user"] = None
-
 # ======================== برداشت ========================
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     user = get_user(user_id)
-    
-    if user.get("banned", False):
-        await query.edit_message_text("⛔ حساب شما مسدود شده است!")
-        return
     
     if not user.get("has_deposited", False):
         await query.edit_message_text(
@@ -1322,10 +1144,6 @@ async def handle_withdraw_info(update: Update, context: ContextTypes.DEFAULT_TYP
     amount = context.user_data.get("withdraw_amount", 0)
     method = context.user_data.get("withdraw_method", "unknown")
     
-    if user.get("banned", False):
-        await update.message.reply_text("⛔ حساب شما مسدود شده است!")
-        return
-    
     user["balance"] -= amount
     add_transaction(user_id, -amount, "withdraw", f"برداشت - {method}")
     save_user(user_id, user)
@@ -1359,10 +1177,6 @@ async def transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     user = get_user(user_id)
     
-    if user.get("banned", False):
-        await query.edit_message_text("⛔ حساب شما مسدود شده است!")
-        return
-    
     trans = user.get("transactions", [])[-10:]
     if not trans:
         text = "📜 **تاریخچه تراکنش‌ها**\n\nهیچ تراکنشی ثبت نشده است."
@@ -1380,10 +1194,6 @@ async def gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     user = get_user(user_id)
-    
-    if user.get("banned", False):
-        await query.edit_message_text("⛔ حساب شما مسدود شده است!")
-        return
     
     bot_username = "shartinobot"
     link = f"https://t.me/{bot_username}?start=ref_{user['referral_code']}"
@@ -1669,10 +1479,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
     
     text = update.message.text.strip()
     action = context.user_data.get("admin_action")
-    
-    if action == "admin_deposit_amount":
-        await handle_admin_deposit_amount(update, context)
-        return
     
     if action == "ban":
         try:
@@ -1979,12 +1785,7 @@ def main():
     app.add_handler(CallbackQueryHandler(my_account, pattern="^my_account$"))
     app.add_handler(CallbackQueryHandler(deposit, pattern="^deposit$"))
     app.add_handler(CallbackQueryHandler(deposit_confirm, pattern="^deposit_confirm$"))
-    app.add_handler(CallbackQueryHandler(copy_wallets, pattern="^copy_wallets$"))
-    app.add_handler(CallbackQueryHandler(copy_trx, pattern="^copy_trx$"))
-    app.add_handler(CallbackQueryHandler(copy_usdt, pattern="^copy_usdt$"))
     app.add_handler(CallbackQueryHandler(deposit_done, pattern="^deposit_done$"))
-    app.add_handler(CallbackQueryHandler(confirm_deposit, pattern="^confirm_deposit_"))
-    app.add_handler(CallbackQueryHandler(reject_deposit, pattern="^reject_deposit_"))
     app.add_handler(CallbackQueryHandler(withdraw, pattern="^withdraw$"))
     app.add_handler(CallbackQueryHandler(withdraw_amount_selected, pattern="^withdraw_"))
     app.add_handler(CallbackQueryHandler(withdraw_card, pattern="^withdraw_card$"))
