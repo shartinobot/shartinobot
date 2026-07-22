@@ -24,7 +24,6 @@ from telegram.ext import (
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 ADMIN_IDS = [int(id.strip()) for id in os.environ.get("ADMIN_IDS", "123456789").split(",") if id.strip()]
 CHANNEL = os.environ.get("CHANNEL", "@shartino")
-SUPPORT = os.environ.get("SUPPORT", "@shartino_sup")
 TRX_WALLET = os.environ.get("TRX_WALLET", "TEv9t55am7zcCi2Z7dUXtFfKQmofeN7e1r")
 USDT_WALLET = os.environ.get("USDT_WALLET", "TEVuvWZ68UbDUdzpd6EqxncsqDVjwyY7cj")
 
@@ -33,6 +32,10 @@ GIFT_AMOUNT = int(os.environ.get("GIFT_AMOUNT", 50000))
 MIN_WITHDRAW = int(os.environ.get("MIN_WITHDRAW", 500000))
 COMMISSION_PERCENT = int(os.environ.get("COMMISSION_PERCENT", 30))
 INITIAL_BALANCE = int(os.environ.get("INITIAL_BALANCE", 0))
+
+# آیدی پشتیبانی ثابت
+SUPPORT = "@shartino_sup"
+EDUCATION_CHANNEL = "@shartino_amozesh"  # کانال آموزش واریز
 
 # ======================== وب‌سرور ========================
 flask_app = Flask(__name__)
@@ -609,7 +612,7 @@ async def coin_predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_win = (choice == "heads" and is_heads) or (choice == "tails" and not is_heads)
     
     if is_win:
-        win_amount = int(bet_amount * 2.5)  # ضریب ۲.۵
+        win_amount = int(bet_amount * 2.5)
         user["balance"] += win_amount
         user["total_wins"] = user.get("total_wins", 0) + 1
         result_text = f"🎉 **تبریک! شما برنده شدید!**\n\n"
@@ -858,7 +861,7 @@ async def football_predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_win = (prediction == "goal" and is_goal) or (prediction == "miss" and not is_goal)
     
     if is_win:
-        win_amount = int(bet_amount * 2.5)  # ضریب ۲.۵
+        win_amount = int(bet_amount * 2.5)
         user["balance"] += win_amount
         user["total_wins"] = user.get("total_wins", 0) + 1
         result_msg = f"🎉 **تبریک! شما برنده شدید!**\n\n"
@@ -917,7 +920,7 @@ async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ======================== واریز (نسخه نهایی - بدون دکمه تایید) ========================
+# ======================== واریز ========================
 async def deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -926,7 +929,6 @@ async def deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     trx_wallet = admin_config.get("trx_wallet", TRX_WALLET)
     usdt_wallet = admin_config.get("usdt_wallet", USDT_WALLET)
-    support = admin_config.get("support", SUPPORT)
     
     bonus_text = ""
     if not user.get("has_deposited", False):
@@ -963,11 +965,20 @@ async def deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━━━━━
 📌 **آیدی ادمین برای ارسال اسکرین‌شات:**
 
-🆔 @shartino_sup
+🆔 {SUPPORT}
 
 📋 **روی آیدی کلیک کنید و اسکرین‌شات را ارسال کنید**
 
-🆘 پشتیبانی: {support}"""
+━━━━━━━━━━━━━━━━━━━━━━
+📌 **آموزش واریز وجه:**
+
+📺 برای مشاهده آموزش تصویری واریز وجه، به کانال زیر مراجعه کنید:
+
+🆔 {EDUCATION_CHANNEL}
+
+📋 **روی آیدی کلیک کنید و آموزش را مشاهده کنید**
+
+🆘 پشتیبانی: {SUPPORT}"""
     
     keyboard = [
         [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
