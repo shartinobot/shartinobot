@@ -913,12 +913,11 @@ async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ======================== واریز (نسخه نهایی) ========================
+# ======================== واریز (نسخه نهایی و تست شده) ========================
 async def deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    user = get_user(user_id)
     
     text = f"""💳 **واریز وجه**
 
@@ -952,7 +951,6 @@ async def deposit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user.get("has_deposited", False):
         bonus_text = f"🎁 **هدیه واریز اول: ۵۰٪ (تا سقف ۵ میلیون تومان)**\n\n"
     
-    # ایجاد لیست آیدی ادمین‌ها
     admin_ids_text = "\n".join([f"🆔 `{admin_id}`" for admin_id in ADMIN_IDS])
     
     text = f"""💳 **صفحه پرداخت**
@@ -995,16 +993,9 @@ async def deposit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
     ]
     
-    # حذف پیام قبلی
-    try:
-        await query.delete_message()
-    except:
-        pass
-    
-    # ارسال پیام جدید
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=text,
+    # ویرایش پیام فعلی به صفحه پرداخت (مطمئن‌ترین روش)
+    await query.edit_message_text(
+        text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -1030,6 +1021,7 @@ async def deposit_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             print(f"خطا در ارسال به ادمین {admin_id}: {e}")
     
+    # ویرایش پیام به پیام تأیید
     await query.edit_message_text(
         f"✅ **درخواست واریز شما ثبت شد!**\n\n"
         f"🕒 درخواست شما به ادمین ارسال شد.\n\n"
