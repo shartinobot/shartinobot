@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ربات شرطینو - نسخه نهایی
+ربات شرطینو - نسخه نهایی با رفع کامل مشکلات
 """
 
 import os
@@ -138,23 +138,28 @@ def add_transaction(user_id, amount, trans_type, description=""):
     save_user(user_id, user)
 
 def add_commission_to_referrer(referred_user_id, deposit_amount):
+    """اضافه کردن کمیسیون به دعوت‌کننده"""
     referred_user = get_user(referred_user_id)
     referrer_code = referred_user.get("referred_by")
     if not referrer_code:
         return
+    
     referrer_id = None
     for uid, data in users.items():
         if data.get("referral_code") == referrer_code:
             referrer_id = int(uid)
             break
+    
     if not referrer_id:
         return
+    
     referrer = get_user(referrer_id)
     commission_percent = referrer.get("commission_percent", COMMISSION_PERCENT)
     commission = int(deposit_amount * (commission_percent / 100))
+    
     referrer["balance"] += commission
     referrer["referral_commission"] = referrer.get("referral_commission", 0) + commission
-    add_transaction(referrer_id, commission, "commission", "کمیسیون از واریز زیرمجموعه")
+    add_transaction(referrer_id, commission, "commission", f"کمیسیون {commission_percent}% از واریز زیرمجموعه")
     save_user(referrer_id, referrer)
 
 # ======================== منوی اصلی ========================
@@ -278,6 +283,7 @@ async def check_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
         add_transaction(user_id, gift_amount, "gift", "شارژ هدیه عضویت در کانال")
         save_user(user_id, user)
         
+        # اعطای جایزه به دعوت‌کننده
         referrer_code = user.get("referred_by")
         if referrer_code:
             for uid, data in users.items():
@@ -300,8 +306,8 @@ async def check_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             f"💰 کل هدیه دریافتی: {referrer.get('referral_gift', 0):,} تومان",
                             parse_mode="Markdown"
                         )
-                    except:
-                        pass
+                    except Exception as e:
+                        print(f"خطا در ارسال پیام به دعوت‌کننده: {e}")
                     break
         
         await query.edit_message_text(
@@ -1128,7 +1134,7 @@ async def trust(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]])
     )
 
-# ======================== پنل ادمین (خلاصه) ========================
+# ======================== پنل ادمین ========================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
@@ -1227,7 +1233,7 @@ async def admin_set_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"برای تغییر، یکی از گزینه‌ها را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("✏️ تغییر ولت ترون", callback_data="admin_edit_trx")],
-            [InlineKeyboardButton("✏️ 변경 ولت تتر", callback_data="admin_edit_usdt")],
+            [InlineKeyboardButton("✏️ تغییر ولت تتر", callback_data="admin_edit_usdt")],
             [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")]
         ])
     )
