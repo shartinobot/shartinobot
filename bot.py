@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+ربات شرطینو - پلتفرم شرط‌بندی و بازی آنلاین
+نسخه نهایی - پایدار با Persistent Disk
+"""
+
 import os
 import json
 import random
 import logging
 import string
+import gc
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from telegram.ext import (
+    Application, CommandHandler, CallbackQueryHandler,
+    MessageHandler, filters, ContextTypes
+)
 
+# ======================== 🔧 تنظیمات با متغیرهای محیطی ========================
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 ADMIN_IDS = [int(id.strip()) for id in os.environ.get("ADMIN_IDS", "123456789").split(",") if id.strip()]
 CHANNEL = os.environ.get("CHANNEL", "@shartino")
@@ -23,8 +32,13 @@ MIN_WITHDRAW = int(os.environ.get("MIN_WITHDRAW", 500000))
 COMMISSION_PERCENT = int(os.environ.get("COMMISSION_PERCENT", 30))
 INITIAL_BALANCE = int(os.environ.get("INITIAL_BALANCE", 0))
 
-DATA_FILE = "users.json"
-ADMIN_CONFIG_FILE = "admin_config.json"
+# ======================== 📁 مسیر فایل‌ها با Persistent Disk ========================
+DATA_DIR = "data"
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+DATA_FILE = os.path.join(DATA_DIR, "users.json")
+ADMIN_CONFIG_FILE = os.path.join(DATA_DIR, "admin_config.json")
 
 def load_json(file_path, default=None):
     if default is None:
@@ -41,6 +55,7 @@ def save_json(file_path, data):
     with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
+# ======================== 📊 دیتابیس ========================
 users = load_json(DATA_FILE)
 admin_config = load_json(ADMIN_CONFIG_FILE, {
     "deposit_enable_date": "۳۰ مرداد‌ماه",
@@ -110,46 +125,6 @@ def add_transaction(user_id, amount, trans_type, description=""):
         user["transactions"] = user["transactions"][-100:]
     save_user(user_id, user)
 
-withdrawals_history = []
-scheduler = AsyncIOScheduler()
-
-def generate_random_user_id():
-    return f"#{random.randint(10000, 99999)}"
-
-def generate_random_amount():
-    rand = random.random()
-    if rand < 0.70:
-        return random.randint(500000, 1000000)
-    elif rand < 0.90:
-        return random.randint(1000000, 5000000)
-    elif rand < 0.98:
-        return random.randint(5000000, 10000000)
-    else:
-        return random.randint(10000000, 15000000)
-
-def add_withdrawal():
-    global withdrawals_history
-    now = datetime.now()
-    new_withdrawal = {
-        "time": now.strftime("%H:%M"),
-        "user_id": generate_random_user_id(),
-        "amount": generate_random_amount(),
-        "status": "✅ پرداخت شد"
-    }
-    withdrawals_history.insert(0, new_withdrawal)
-    if len(withdrawals_history) > 50:
-        withdrawals_history = withdrawals_history[:50]
-
-def schedule_withdrawals():
-    def job():
-        add_withdrawal()
-        next_interval = random.randint(2, 10)
-        scheduler.add_job(job, 'interval', minutes=next_interval, id='withdrawal_job')
-    scheduler.add_job(job, 'interval', minutes=1, id='start_withdrawal')
-
-def get_withdrawals():
-    return withdrawals_history[:5]
-
 def add_commission_to_referrer(referred_user_id, deposit_amount):
     referred_user = get_user(referred_user_id)
     referrer_code = referred_user.get("referred_by")
@@ -170,42 +145,44 @@ def add_commission_to_referrer(referred_user_id, deposit_amount):
     add_transaction(referrer_id, commission, "commission", "کمیسیون از واریز زیرمجموعه")
     save_user(referrer_id, referrer)
 
+# ======================== منوی اصلی ========================
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     user = get_user(user_id)
+    
     if user.get("banned", False):
         await query.edit_message_text("⛔ حساب شما مسدود شده است!")
         return
+    
     keyboard = [
         [InlineKeyboardButton("🎲 شروع بازی", callback_data="game_menu")],
         [InlineKeyboardButton("👤 حساب من", callback_data="my_account")],
         [InlineKeyboardButton("🎁 دریافت شارژ هدیه", callback_data="gift")],
-        [InlineKeyboardButton("🏆 آخرین برداشت‌ها", callback_data="withdrawals_list")],
         [InlineKeyboardButton("🏆 لیگ برندگان", callback_data="leaderboard")],
         [InlineKeyboardButton("❓ چطور اعتماد کنم", callback_data="trust")],
         [InlineKeyboardButton("🆘 پشتیبانی", callback_data="support")]
     ]
-    text = f"🎰 **شرطینو**\n\n👤 کاربر: @{user['username'] or 'کاربر'}\n💰 موجودی: {user['balance']:,} تومان\n\nبا تحلیل لحظه‌ای و سیگنال‌های دقیق\nو اولین سودت رو همین امروز بگیر!\n\n✅ با ریال می‌تونی برداشت کنی\n👥 با دعوت هر دوست {GIFT_AMOUNT:,} تومان هدیه"
+    
+    text = f"🎰 **شرطینو**\n\n" \
+           f"👤 کاربر: @{user['username'] or 'کاربر'}\n" \
+           f"💰 موجودی: {user['balance']:,} تومان\n\n" \
+           f"✅ با ریال می‌تونی برداشت کنی\n" \
+           f"👥 با دعوت هر دوست {GIFT_AMOUNT:,} تومان هدیه\n\n" \
+           f"از منوی زیر انتخاب کنید:"
+    
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
+# ======================== استارت ========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username
     user = get_user(user_id)
     user["username"] = username
     save_user(user_id, user)
-    if context.args and context.args[0].startswith("camp_"):
-        camp_code = context.args[0]
-        campaign = admin_config.get("campaigns", {}).get(camp_code)
-        if campaign:
-            if user_id not in campaign.get("users", []):
-                campaign["clicks"] = campaign.get("clicks", 0) + 1
-                campaign["users"] = campaign.get("users", []) + [user_id]
-                user["campaign_code"] = camp_code
-                save_user(user_id, user)
-                save_json(ADMIN_CONFIG_FILE, admin_config)
+    
+    # لینک دعوت
     if context.args and context.args[0].startswith("ref_"):
         ref_code = context.args[0][4:]
         for uid, data in users.items():
@@ -213,9 +190,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user["referred_by"] = ref_code
                 save_user(user_id, user)
                 break
+    
     channels = admin_config.get("channels", [{"link": CHANNEL, "enabled": True}])
     enabled_channels = [c for c in channels if c.get("enabled", True)]
     channel_count = len(enabled_channels)
+    
     if not user.get("free_gift_used", False):
         keyboard = []
         for i, channel in enumerate(enabled_channels, 1):
@@ -223,6 +202,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             label = f"📢 عضویت در کانال {i}" if channel_count > 1 else "📢 عضویت در کانال"
             keyboard.append([InlineKeyboardButton(label, url=f"https://t.me/{link[1:]}")])
         keyboard.append([InlineKeyboardButton("✅ عضو شدم", callback_data="check_gift")])
+        
         if channel_count == 1:
             channels_text = f"1️⃣ {enabled_channels[0]['link']}"
             channel_word = "کانال"
@@ -233,21 +213,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             channel_word = "کانال‌ها"
             channel_word2 = "کانال‌های"
             channel_word3 = "کانال‌های بالا"
+        
         gift_amount = admin_config.get("gift_amount", GIFT_AMOUNT)
-        text = f"🎁 **{gift_amount:,} تومان شارژ هدیه:**\n\nفقط با عضویت در {channel_word2} اطلاع‌رسانی ما، شارژ هدیه دریافت کنید!\n\n📌 **{channel_word} مورد نیاز:**\n\n{channels_text}\n\nبرای دریافت شارژ هدیه، ابتدا در {channel_word3} عضو شوید.\n\nپس از عضویت، روی دکمه «✅ عضو شدم» کلیک کنید."
+        text = f"🎁 **{gift_amount:,} تومان شارژ هدیه:**\n\n"
+        text += f"فقط با عضویت در {channel_word2} اطلاع‌رسانی ما، شارژ هدیه دریافت کنید!\n\n"
+        text += f"📌 **{channel_word} مورد نیاز:**\n\n{channels_text}\n\n"
+        text += f"برای دریافت شارژ هدیه، ابتدا در {channel_word3} عضو شوید.\n\n"
+        text += f"پس از عضویت، روی دکمه «✅ عضو شدم» کلیک کنید."
+        
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     else:
         keyboard = [
             [InlineKeyboardButton("🎲 شروع بازی", callback_data="game_menu")],
             [InlineKeyboardButton("👤 حساب من", callback_data="my_account")],
             [InlineKeyboardButton("🎁 دریافت شارژ هدیه", callback_data="gift")],
-            [InlineKeyboardButton("🏆 آخرین برداشت‌ها", callback_data="withdrawals_list")],
             [InlineKeyboardButton("🏆 لیگ برندگان", callback_data="leaderboard")],
             [InlineKeyboardButton("❓ چطور اعتماد کنم", callback_data="trust")],
             [InlineKeyboardButton("🆘 پشتیبانی", callback_data="support")]
         ]
         await update.message.reply_text(
-            f"🎰 **شرطینو**\n\n👤 کاربر: @{username or 'کاربر'}\n💰 موجودی: {user['balance']:,} تومان\n\nبا تحلیل لحظه‌ای و سیگنال‌های دقیق\nو اولین سودت رو همین امروز بگیر!\n\n✅ با ریال می‌تونی برداشت کنی\n👥 با دعوت هر دوست {admin_config.get('gift_amount', GIFT_AMOUNT):,} تومان هدیه",
+            f"🎰 **شرطینو**\n\n"
+            f"👤 کاربر: @{username or 'کاربر'}\n"
+            f"💰 موجودی: {user['balance']:,} تومان\n\n"
+            f"✅ با ریال می‌تونی برداشت کنی\n"
+            f"👥 با دعوت هر دوست {admin_config.get('gift_amount', GIFT_AMOUNT):,} تومان هدیه\n\n"
+            f"از منوی زیر انتخاب کنید:",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
 
@@ -256,8 +246,10 @@ async def check_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     user = get_user(user_id)
+    
     channels = admin_config.get("channels", [{"link": CHANNEL, "enabled": True}])
     enabled_channels = [c for c in channels if c.get("enabled", True)]
+    
     all_member = True
     for channel in enabled_channels:
         try:
@@ -268,12 +260,14 @@ async def check_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             all_member = False
             break
+    
     if all_member:
         gift_amount = admin_config.get("gift_amount", GIFT_AMOUNT)
         user["free_gift_used"] = True
         user["balance"] += gift_amount
         add_transaction(user_id, gift_amount, "gift", "شارژ هدیه عضویت در کانال")
         save_user(user_id, user)
+        
         referrer_code = user.get("referred_by")
         if referrer_code:
             for uid, data in users.items():
@@ -288,14 +282,22 @@ async def check_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     try:
                         await context.bot.send_message(
                             referrer_id,
-                            f"🎉 **یک عضو جدید با لینک شما عضو شد!**\n\n👤 کاربر جدید: @{user['username'] or user_id}\n🎁 شارژ هدیه: {gift_amount:,} تومان به حساب شما اضافه شد.\n\n📊 آمار دعوت‌های شما:\n👥 کل دعوت‌ها: {referrer.get('referral_count', 0)}\n💰 کل هدیه دریافتی: {referrer.get('referral_gift', 0):,} تومان",
+                            f"🎉 **یک عضو جدید با لینک شما عضو شد!**\n\n"
+                            f"👤 کاربر جدید: @{user['username'] or user_id}\n"
+                            f"🎁 شارژ هدیه: {gift_amount:,} تومان به حساب شما اضافه شد.\n\n"
+                            f"📊 آمار دعوت‌های شما:\n"
+                            f"👥 کل دعوت‌ها: {referrer.get('referral_count', 0)}\n"
+                            f"💰 کل هدیه دریافتی: {referrer.get('referral_gift', 0):,} تومان",
                             parse_mode="Markdown"
                         )
                     except:
                         pass
                     break
+        
         await query.edit_message_text(
-            f"✅ **تبریک! عضویت شما تأیید شد.**\n\n🎁 {gift_amount:,} تومان شارژ هدیه به حساب شما اضافه شد.\n💰 موجودی جدید: {user['balance']:,} تومان",
+            f"✅ **تبریک! عضویت شما تأیید شد.**\n\n"
+            f"🎁 {gift_amount:,} تومان شارژ هدیه به حساب شما اضافه شد.\n"
+            f"💰 موجودی جدید: {user['balance']:,} تومان",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🎲 شروع بازی", callback_data="game_menu")],
                 [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
@@ -309,16 +311,21 @@ async def check_gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
             label = f"📢 عضویت در کانال {i}" if len(enabled_channels) > 1 else "📢 عضویت در کانال"
             keyboard.append([InlineKeyboardButton(label, url=f"https://t.me/{link[1:]}")])
         keyboard.append([InlineKeyboardButton("✅ عضو شدم", callback_data="check_gift")])
+        
         await query.edit_message_text(
-            f"❌ شما هنوز در همه کانال‌ها عضو نشده‌اید!\n\nلطفاً ابتدا در همه کانال‌های بالا عضو شوید، سپس دوباره روی «عضو شدم» کلیک کنید.",
+            f"❌ شما هنوز در همه کانال‌ها عضو نشده‌اید!\n\n"
+            f"لطفاً ابتدا در همه کانال‌های بالا عضو شوید، سپس دوباره روی «عضو شدم» کلیک کنید.",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
 
+# ======================== بازی‌ها ========================
 async def game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
     games = admin_config.get("games", {})
     keyboard = []
+    
     if games.get("dice", True):
         keyboard.append([InlineKeyboardButton("🎲 تاس", callback_data="dice_game")])
     if games.get("coin", True):
@@ -327,7 +334,9 @@ async def game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("🎰 اسلات", callback_data="slot_game")])
     if games.get("football", True):
         keyboard.append([InlineKeyboardButton("⚽ فوتبال", callback_data="football_game")])
+    
     keyboard.append([InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")])
+    
     await query.edit_message_text("🎮 **بازی‌های شرطینو**\n\nلطفاً یک بازی را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -339,8 +348,12 @@ async def dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⛔ حساب شما مسدود شده است!")
         return
     context.user_data["game"] = "dice"
+    context.user_data["waiting_for_bet"] = True
     await query.edit_message_text(
-        f"🎲 **بازی تاس**\n\n💰 موجودی شما: {user['balance']:,} تومان\n📌 حداقل مبلغ شرط: {admin_config.get('min_bet', MIN_BET):,} تومان\n\nمبلغ شرط خود را وارد کنید:",
+        f"🎲 **بازی تاس**\n\n"
+        f"💰 موجودی شما: {user['balance']:,} تومان\n"
+        f"📌 حداقل مبلغ شرط: {admin_config.get('min_bet', MIN_BET):,} تومان\n\n"
+        f"مبلغ شرط خود را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]]),
         parse_mode="Markdown"
     )
@@ -354,8 +367,13 @@ async def coin_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⛔ حساب شما مسدود شده است!")
         return
     context.user_data["game"] = "coin"
+    context.user_data["waiting_for_bet"] = True
     await query.edit_message_text(
-        f"🪙 **شیر یا خط**\n\n💰 موجودی شما: {user['balance']:,} تومان\n📌 حداقل مبلغ شرط: {admin_config.get('min_bet', MIN_BET):,} تومان\n\n📌 عدد زوج = شیر 🦁 | عدد فرد = خط 📍\n\nمبلغ شرط خود را وارد کنید:",
+        f"🪙 **شیر یا خط**\n\n"
+        f"💰 موجودی شما: {user['balance']:,} تومان\n"
+        f"📌 حداقل مبلغ شرط: {admin_config.get('min_bet', MIN_BET):,} تومان\n\n"
+        f"📌 عدد زوج = شیر 🦁 | عدد فرد = خط 📍\n\n"
+        f"مبلغ شرط خود را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]]),
         parse_mode="Markdown"
     )
@@ -369,9 +387,18 @@ async def slot_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⛔ حساب شما مسدود شده است!")
         return
     context.user_data["game"] = "slot"
+    context.user_data["waiting_for_bet"] = True
     slot_coeffs = admin_config.get("slot_coeffs", {})
     await query.edit_message_text(
-        f"🎰 **بازی اسلات**\n\n💰 موجودی شما: {user['balance']:,} تومان\n📌 حداقل مبلغ شرط: {admin_config.get('min_bet', MIN_BET):,} تومان\n\n📊 **ضرایب:**\n💎💎💎 = {slot_coeffs.get('💎💎💎', 100)}× | ⭐⭐⭐ = {slot_coeffs.get('⭐⭐⭐', 50)}×\n۷۷۷ = {slot_coeffs.get('۷۷۷', 20)}× | 🍇🍇🍇 = {slot_coeffs.get('🍇🍇🍇', 15)}×\n🍋🍋🍋 = {slot_coeffs.get('🍋🍋🍋', 10)}× | 🍒🍒🍒 = {slot_coeffs.get('🍒🍒🍒', 5)}×\n۲ تا یکسان = {slot_coeffs.get('two_same', 2)}×\n\nمبلغ شرط خود را وارد کنید:",
+        f"🎰 **بازی اسلات**\n\n"
+        f"💰 موجودی شما: {user['balance']:,} تومان\n"
+        f"📌 حداقل مبلغ شرط: {admin_config.get('min_bet', MIN_BET):,} تومان\n\n"
+        f"📊 **ضرایب:**\n"
+        f"💎💎💎 = {slot_coeffs.get('💎💎💎', 100)}× | ⭐⭐⭐ = {slot_coeffs.get('⭐⭐⭐', 50)}×\n"
+        f"۷۷۷ = {slot_coeffs.get('۷۷۷', 20)}× | 🍇🍇🍇 = {slot_coeffs.get('🍇🍇🍇', 15)}×\n"
+        f"🍋🍋🍋 = {slot_coeffs.get('🍋🍋🍋', 10)}× | 🍒🍒🍒 = {slot_coeffs.get('🍒🍒🍒', 5)}×\n"
+        f"۲ تا یکسان = {slot_coeffs.get('two_same', 2)}×\n\n"
+        f"مبلغ شرط خود را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]]),
         parse_mode="Markdown"
     )
@@ -385,8 +412,12 @@ async def football_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⛔ حساب شما مسدود شده است!")
         return
     context.user_data["game"] = "football"
+    context.user_data["waiting_for_bet"] = True
     await query.edit_message_text(
-        f"⚽ **بازی فوتبال**\n\n💰 موجودی شما: {user['balance']:,} تومان\n📌 حداقل مبلغ شرط: {admin_config.get('min_bet', MIN_BET):,} تومان\n\nمبلغ شرط خود را وارد کنید:",
+        f"⚽ **بازی فوتبال**\n\n"
+        f"💰 موجودی شما: {user['balance']:,} تومان\n"
+        f"📌 حداقل مبلغ شرط: {admin_config.get('min_bet', MIN_BET):,} تومان\n\n"
+        f"مبلغ شرط خود را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]]),
         parse_mode="Markdown"
     )
@@ -394,23 +425,35 @@ async def football_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_bet_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = get_user(user_id)
+    
     if user.get("banned", False):
         await update.message.reply_text("⛔ حساب شما مسدود شده است!")
         return
+    
+    if not context.user_data.get("waiting_for_bet", False):
+        await update.message.reply_text("❌ لطفاً ابتدا یک بازی را انتخاب کنید.")
+        return
+    
     try:
         amount = int(update.message.text.strip())
     except:
         await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید.")
         return
+    
     min_bet = admin_config.get("min_bet", MIN_BET)
     if amount < min_bet:
         await update.message.reply_text(f"❌ حداقل مبلغ شرط {min_bet:,} تومان است.")
         return
+    
     if amount > user["balance"]:
         await update.message.reply_text(f"❌ موجودی شما کافی نیست!\n💰 موجودی شما: {user['balance']:,} تومان")
         return
+    
     context.user_data["bet_amount"] = amount
+    context.user_data["waiting_for_bet"] = False
+    
     game = context.user_data.get("game", "dice")
+    
     if game == "dice":
         keyboard = [
             [InlineKeyboardButton("🟢 زوج | ضریب ۳", callback_data="dice_even")],
@@ -424,7 +467,7 @@ async def handle_bet_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 انصراف", callback_data="main_menu")]
         ]
         await update.message.reply_text(
-            f"🎲 **انتخاب پیش‌بینی**\n\n💰 مبلغ شرط: {amount:,} تومان",
+            f"🎲 **انتخاب پیش‌بینی**\n\n💰 مبلغ شرط: {amount:,} تومان\n\nلطفاً پیش‌بینی خود را انتخاب کنید:",
             reply_markup=InlineKeyboardMarkup([keyboard[i:i+2] for i in range(0, len(keyboard), 2)]),
             parse_mode="Markdown"
         )
@@ -435,13 +478,12 @@ async def handle_bet_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 انصراف", callback_data="main_menu")]
         ]
         await update.message.reply_text(
-            f"🪙 **انتخاب شیر یا خط**\n\n💰 مبلغ شرط: {amount:,} تومان\n\n📌 عدد زوج = شیر 🦁 | عدد فرد = خط 📍",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            f"🪙 **انتخاب شیر یا خط**\n\n💰 مبلغ شرط: {amount:,} تومان\n\n📌 عدد زوج = شیر 🦁 | عدد فرد = خط 📍\n\nلطفاً انتخاب کنید:",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
     elif game == "slot":
         await update.message.reply_text(
-            f"🎰 **اسلات**\n\n💰 مبلغ شرط: {amount:,} تومان",
+            f"🎰 **اسلات**\n\n💰 مبلغ شرط: {amount:,} تومان\n\nدکمه زیر را بزنید تا دستگاه اسلات بچرخد:",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🎰 چرخش اسلات", callback_data="slot_spin")],
                 [InlineKeyboardButton("🔙 انصراف", callback_data="main_menu")]
@@ -456,8 +498,7 @@ async def handle_bet_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await update.message.reply_text(
             f"⚽ **پیش‌بینی فوتبال**\n\n💰 مبلغ شرط: {amount:,} تومان\n\nتوپ به سمت دروازه شوت می‌شود!",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
 
 async def dice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -539,15 +580,25 @@ async def slot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     user = get_user(user_id)
     bet_amount = context.user_data.get("bet_amount", 0)
+    
+    await query.edit_message_text("🎰 **در حال چرخش اسلات...**", parse_mode="Markdown")
+    
     dice_message = await query.message.reply_dice(emoji="🎰")
     dice_value = dice_message.dice.value
-    slot_emojis = ["💎", "⭐", "７", "🍇", "🍋", "🍒"]
-    result = [slot_emojis[(dice_value // 4) % 6], slot_emojis[(dice_value // 1) % 6], slot_emojis[(dice_value * 3) % 6]]
+    
+    slot_emojis = ["🍇", "🍋", "７", "BAR"]
+    result = [
+        slot_emojis[(dice_value - 1) // 16 % 4],
+        slot_emojis[(dice_value - 1) // 4 % 4],
+        slot_emojis[(dice_value - 1) % 4]
+    ]
     combo = "".join(result)
+    
     slot_coeffs = admin_config.get("slot_coeffs", {})
     coefficient = slot_coeffs.get(combo, 0)
     if coefficient == 0 and (result[0] == result[1] or result[1] == result[2] or result[0] == result[2]):
         coefficient = slot_coeffs.get("two_same", 2)
+    
     if coefficient > 0:
         win_amount = bet_amount * coefficient
         user["balance"] += win_amount
@@ -559,13 +610,15 @@ async def slot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user["total_losses"] += 1
         result_text = f"😔 **متاسفم... شما باختید.**\n\n🎰 نتیجه اسلات:\n[ {result[0]} ] [ {result[1]} ] [ {result[2]} ]\n\n📊 ترکیب: {combo}\n🎯 ضریب: ۰\n💰 مبلغ شرط: {bet_amount:,} تومان\n💰 موجودی جدید: {user['balance']:,} تومان"
         add_transaction(user_id, -bet_amount, "bet", "باخت در اسلات")
+    
     user["total_bets"] += 1
     save_user(user_id, user)
+    
     keyboard = [
         [InlineKeyboardButton("🎰 دوباره", callback_data="slot_game")],
         [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
     ]
-    await query.edit_message_text(result_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await query.message.reply_text(result_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def football_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -598,6 +651,7 @@ async def football_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(result_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
+# ======================== حساب من ========================
 async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -619,11 +673,15 @@ async def my_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
+# ======================== واریز ========================
 async def deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        f"💳 **واریز وجه**\n\n💰 حداقل مبلغ واریز: {admin_config.get('min_deposit', 500000):,} تومان\n\nلطفاً مبلغ مورد نظر برای واریز را وارد کنید:\n\n(مثال: 1000000)",
+        f"💳 **واریز وجه**\n\n"
+        f"💰 حداقل مبلغ واریز: {admin_config.get('min_deposit', 500000):,} تومان\n\n"
+        f"لطفاً مبلغ مورد نظر برای واریز را وارد کنید:\n\n"
+        f"(مثال: 1000000)",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]]),
         parse_mode="Markdown"
     )
@@ -643,7 +701,10 @@ async def handle_deposit_amount(update: Update, context: ContextTypes.DEFAULT_TY
     min_deposit = admin_config.get("min_deposit", 500000)
     if amount < min_deposit:
         await update.message.reply_text(
-            f"❌ مبلغ وارد شده کمتر از حداقل مجاز است!\n\n💰 حداقل مبلغ واریز: {min_deposit:,} تومان\n🎯 مبلغ وارد شده: {amount:,} تومان\n\nلطفاً مبلغی برابر یا بیشتر از {min_deposit:,} تومان وارد کنید."
+            f"❌ مبلغ وارد شده کمتر از حداقل مجاز است!\n\n"
+            f"💰 حداقل مبلغ واریز: {min_deposit:,} تومان\n"
+            f"🎯 مبلغ وارد شده: {amount:,} تومان\n\n"
+            f"لطفاً مبلغی برابر یا بیشتر از {min_deposit:,} تومان وارد کنید."
         )
         return
     context.user_data["deposit_amount"] = amount
@@ -700,6 +761,7 @@ async def copy_usdt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     await query.answer(f"✅ آدرس ولت تتر کپی شد:\n{admin_config.get('usdt_wallet', USDT_WALLET)}", show_alert=True)
 
+# ======================== برداشت ========================
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -708,18 +770,11 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user.get("banned", False):
         await query.edit_message_text("⛔ حساب شما مسدود شده است!")
         return
-    if not user.get("has_deposited", False):
-        await query.edit_message_text(
-            f"❌ **برداشت غیرمجاز!**\n\nشما تاکنون هیچ واریزی به ربات نداشته‌اید.\n\n📌 برداشت تنها پس از **اولین واریز** امکان‌پذیر است.\n\nبرای واریز، از بخش «💳 واریز وجه» اقدام کنید.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("💳 واریز وجه", callback_data="deposit")],
-                [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
-            ]),
-            parse_mode="Markdown"
-        )
-        return
     await query.edit_message_text(
-        f"🏦 **برداشت موجودی**\n\n💰 موجودی قابل برداشت: {user['balance']:,} تومان\n📌 حداقل مبلغ برداشت: {admin_config.get('min_withdraw', MIN_WITHDRAW):,} تومان\n\nلطفاً مبلغ مورد نظر را وارد کنید:",
+        f"🏦 **برداشت موجودی**\n\n"
+        f"💰 موجودی قابل برداشت: {user['balance']:,} تومان\n"
+        f"📌 حداقل مبلغ برداشت: {admin_config.get('min_withdraw', MIN_WITHDRAW):,} تومان\n\n"
+        f"لطفاً مبلغ مورد نظر را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]]),
         parse_mode="Markdown"
     )
@@ -736,11 +791,34 @@ async def handle_withdraw_amount(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید.")
         return
     min_withdraw = admin_config.get("min_withdraw", MIN_WITHDRAW)
-    if amount > user["balance"]:
-        await update.message.reply_text(f"❌ موجودی شما کافی نیست!\n💰 موجودی شما: {user['balance']:,} تومان")
-        return
     if amount < min_withdraw:
-        await update.message.reply_text(f"❌ حداقل مبلغ برداشت {min_withdraw:,} تومان است.")
+        await update.message.reply_text(
+            f"❌ **مبلغ وارد شده کمتر از حداقل مجاز است!**\n\n"
+            f"💰 حداقل مبلغ برداشت: {min_withdraw:,} تومان\n"
+            f"🎯 مبلغ وارد شده: {amount:,} تومان\n\n"
+            f"لطفاً مبلغی برابر یا بیشتر از حداقل وارد کنید."
+        )
+        return
+    if amount > user["balance"]:
+        await update.message.reply_text(
+            f"❌ **موجودی شما کافی نیست!**\n\n"
+            f"💰 موجودی شما: {user['balance']:,} تومان\n"
+            f"🎯 مبلغ درخواستی: {amount:,} تومان"
+        )
+        return
+    if not user.get("has_deposited", False):
+        await update.message.reply_text(
+            f"✅ مبلغ {amount:,} تومان برای برداشت ثبت شد.\n\n"
+            f"❌ **برداشت غیرمجاز!**\n\n"
+            f"شما تاکنون هیچ واریزی به ربات نداشته‌اید.\n\n"
+            f"📌 برداشت تنها پس از **اولین واریز** امکان‌پذیر است.\n\n"
+            f"برای واریز، از بخش «💳 واریز وجه» اقدام کنید.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💳 واریز وجه", callback_data="deposit")],
+                [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
+            ]),
+            parse_mode="Markdown"
+        )
         return
     context.user_data["withdraw_amount"] = amount
     keyboard = [
@@ -749,7 +827,8 @@ async def handle_withdraw_amount(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton("🔙 انصراف", callback_data="main_menu")]
     ]
     await update.message.reply_text(
-        f"✅ مبلغ {amount:,} تومان برای برداشت ثبت شد.\n\nلطفاً یکی از روش‌های زیر را انتخاب کنید:",
+        f"✅ مبلغ {amount:,} تومان برای برداشت ثبت شد.\n\n"
+        f"لطفاً یکی از روش‌های زیر را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
     )
 
@@ -784,11 +863,15 @@ async def handle_withdraw_info(update: Update, context: ContextTypes.DEFAULT_TYP
         except:
             pass
     await update.message.reply_text(
-        f"✅ **درخواست برداشت شما ثبت شد!**\n\n💰 مبلغ: {amount:,} تومان\n🕒 درخواست شما در صف پردازش قرار گرفت.\nدر صورت نیاز به پشتیبانی: {SUPPORT}",
+        f"✅ **درخواست برداشت شما ثبت شد!**\n\n"
+        f"💰 مبلغ: {amount:,} تومان\n"
+        f"🕒 درخواست شما در صف پردازش قرار گرفت.\n"
+        f"در صورت نیاز به پشتیبانی: {SUPPORT}",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]]),
         parse_mode="Markdown"
     )
 
+# ======================== تاریخچه تراکنش‌ها ========================
 async def transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -807,6 +890,7 @@ async def transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"{t['date']} | {emoji} {t['amount']:,} | موجودی: {t['balance_after']:,}\n"
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 حساب من", callback_data="my_account")]]), parse_mode="Markdown")
 
+# ======================== سایر بخش‌ها ========================
 async def gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -818,7 +902,15 @@ async def gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_username = "shartinobot"
     link = f"https://t.me/{bot_username}?start=ref_{user['referral_code']}"
     commission_percent = user.get("commission_percent", COMMISSION_PERCENT)
-    text = f"🎁 **دریافت شارژ هدیه و کمیسیون**\n\n📌 **درصد کمیسیون شما:** {commission_percent}%\n\n👤 هر دعوت موفق = {admin_config.get('gift_amount', GIFT_AMOUNT):,} تومان شارژ هدیه\n💰 از هر واریز زیرمجموعه = {commission_percent}% کمیسیون\n\n🔗 لینک دعوت اختصاصی:\n`{link}`\n\n📊 **آمار شما:**\n👥 دعوت‌های موفق: {user.get('referral_count', 0)}\n💰 شارژ هدیه: {user.get('referral_gift', 0):,} تومان\n💸 کمیسیون دریافتی: {user.get('referral_commission', 0):,} تومان"
+    text = f"🎁 **دریافت شارژ هدیه و کمیسیون**\n\n"
+    text += f"📌 **درصد کمیسیون شما:** {commission_percent}%\n\n"
+    text += f"👤 هر دعوت موفق = {admin_config.get('gift_amount', GIFT_AMOUNT):,} تومان شارژ هدیه\n"
+    text += f"💰 از هر واریز زیرمجموعه = {commission_percent}% کمیسیون\n\n"
+    text += f"🔗 لینک دعوت اختصاصی:\n`{link}`\n\n"
+    text += f"📊 **آمار شما:**\n"
+    text += f"👥 دعوت‌های موفق: {user.get('referral_count', 0)}\n"
+    text += f"💰 شارژ هدیه: {user.get('referral_gift', 0):,} تومان\n"
+    text += f"💸 کمیسیون دریافتی: {user.get('referral_commission', 0):,} تومان"
     keyboard = [
         [InlineKeyboardButton("📋 کپی لینک دعوت", callback_data="copy_referral")],
         [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
@@ -838,7 +930,10 @@ async def trust(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        f"❓ **چطور اعتماد کنم**\n\nما درک می‌کنیم که اعتماد کردن به یک سرویس آنلاین ممکن است برای شما چالش‌برانگیز باشد.\n\nبه منظور اینکه شما با خیال آسوده شروع به فعالیت کنید، **{admin_config.get('gift_amount', GIFT_AMOUNT):,} تومان موجودی رایگان** هنگام عضویت به شما اهدا کردیم.\n\nما متعهد به ارائه تجربه‌ای لذت‌بخش و عادلانه برای تمام کاربران هستیم. ❤️",
+        f"❓ **چطور اعتماد کنم**\n\n"
+        f"ما درک می‌کنیم که اعتماد کردن به یک سرویس آنلاین ممکن است برای شما چالش‌برانگیز باشد.\n\n"
+        f"به منظور اینکه شما با خیال آسوده شروع به فعالیت کنید، **{admin_config.get('gift_amount', GIFT_AMOUNT):,} تومان موجودی رایگان** هنگام عضویت به شما اهدا کردیم.\n\n"
+        f"ما متعهد به ارائه تجربه‌ای لذت‌بخش و عادلانه برای تمام کاربران هستیم. ❤️",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]]),
         parse_mode="Markdown"
     )
@@ -847,33 +942,15 @@ async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        f"🆘 **پشتیبانی**\n\nبرای ارتباط با پشتیبانی، به آیدی زیر پیام دهید:\n\n👨‍💻 {SUPPORT}\n\n⏳ پاسخگویی: ۲۴ ساعته، همه روزه",
+        f"🆘 **پشتیبانی**\n\n"
+        f"برای ارتباط با پشتیبانی، به آیدی زیر پیام دهید:\n\n"
+        f"👨‍💻 {SUPPORT}\n\n"
+        f"⏳ پاسخگویی: ۲۴ ساعته، همه روزه",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]]),
         parse_mode="Markdown"
     )
 
-async def withdrawals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    withdrawals = get_withdrawals()
-    if not withdrawals:
-        text = "🏆 **آخرین برداشت‌ها**\n\nهیچ برداشتی ثبت نشده است."
-    else:
-        text = "🏆 **آخرین برداشت‌های موفق**\n\n📌 برداشت‌های لحظه‌ای:\n\n─────────────────────\n"
-        for w in withdrawals:
-            text += f"🕐 {w['time']} | کاربر {w['user_id']} | {w['amount']:,} تومان | {w['status']}\n"
-        text += "\n─────────────────────\n📌 نمایش ۵ برداشت اخیر\n\n💡 برداشت‌ها به صورت لحظه‌ای ثبت می‌شوند."
-    keyboard = [
-        [InlineKeyboardButton("🔄 بروزرسانی", callback_data="refresh_withdrawals")],
-        [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
-    ]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-async def refresh_withdrawals(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await withdrawals_list(update, context)
-
+# ======================== لیگ برندگان ========================
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -929,6 +1006,7 @@ async def refresh_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     await leaderboard(update, context)
 
+# ======================== پنل ادمین ========================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
@@ -938,7 +1016,6 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📊 آمار کل", callback_data="admin_stats")],
         [InlineKeyboardButton("👥 مدیریت کاربران", callback_data="admin_users")],
         [InlineKeyboardButton("⚙️ تنظیمات", callback_data="admin_settings")],
-        [InlineKeyboardButton("📢 مدیریت کمپین", callback_data="admin_campaign")],
         [InlineKeyboardButton("🔙 بستن", callback_data="admin_close")]
     ]
     await update.message.reply_text("👑 **پنل مدیریت ربات شرطینو**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -978,75 +1055,6 @@ async def admin_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text("⚙️ **تنظیمات ربات**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-async def admin_campaign(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    keyboard = [
-        [InlineKeyboardButton("➕ ساخت لینک جدید", callback_data="admin_new_campaign")],
-        [InlineKeyboardButton("📊 آمار لینک‌ها", callback_data="admin_campaign_stats")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")]
-    ]
-    await query.edit_message_text("📢 **مدیریت کمپین‌های تبلیغاتی**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-async def admin_new_campaign(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        "➕ **ساخت لینک تبلیغاتی جدید**\n\n📝 نام کمپین را وارد کنید:\n\n(مثال: کانال_ترید_بزرگ)",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")]])
-    )
-    context.user_data["admin_action"] = "new_campaign"
-
-async def admin_campaign_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    campaigns = admin_config.get("campaigns", {})
-    if not campaigns:
-        text = "📊 **آمار کمپین‌ها**\n\nهیچ کمپینی ایجاد نشده است."
-    else:
-        text = "📊 **آمار کمپین‌های تبلیغاتی**\n\n"
-        total_clicks = 0
-        total_deposits = 0
-        total_amount = 0
-        for code, data in campaigns.items():
-            name = data.get("name", code)
-            clicks = data.get("clicks", 0)
-            deposits = data.get("deposits", 0)
-            amount = data.get("total_amount", 0)
-            total_clicks += clicks
-            total_deposits += deposits
-            total_amount += amount
-            rate = round((deposits / clicks * 100) if clicks > 0 else 0, 1)
-            text += f"🔹 {name}\n   👥 ورودی: {clicks} | 💰 واریز: {deposits} | {amount:,} تومان\n   📈 نرخ تبدیل: {rate}%\n\n"
-        text += f"━━━━━━━━━━━━━━━━━━━━━━\n📌 **مجموع کل:**\n👥 کل ورودی: {total_clicks}\n💰 کل واریز: {total_deposits} | {total_amount:,} تومان\n📈 نرخ تبدیل کل: {round((total_deposits / total_clicks * 100) if total_clicks > 0 else 0, 1)}%"
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")]]), parse_mode="Markdown")
-
-async def admin_manage_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    games = admin_config.get("games", {})
-    text = "🎲 **مدیریت بازی‌ها**\n\nوضعیت فعلی:\n"
-    for game, status in games.items():
-        text += f"✅ {game}: {'فعال' if status else 'غیرفعال'}\n"
-    keyboard = []
-    for game in games.keys():
-        keyboard.append([InlineKeyboardButton(f"🔄 تغییر وضعیت {game}", callback_data=f"admin_toggle_game_{game}")])
-    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")])
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-async def admin_toggle_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    game = query.data.split("_")[3]
-    games = admin_config.get("games", {})
-    games[game] = not games.get(game, True)
-    admin_config["games"] = games
-    save_json(ADMIN_CONFIG_FILE, admin_config)
-    await query.edit_message_text(
-        f"✅ وضعیت بازی {game} با موفقیت تغییر کرد.\n📌 وضعیت جدید: {'فعال' if games[game] else 'غیرفعال'}",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 مدیریت بازی‌ها", callback_data="admin_manage_games")]])
-    )
-
 async def admin_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1077,7 +1085,9 @@ async def admin_set_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        f"📅 **تغییر تاریخ فعال‌سازی واریز ریالی**\n\n📌 تاریخ فعلی: {admin_config.get('deposit_enable_date', '۳۰ مرداد‌ماه')}\n\nتاریخ جدید را وارد کنید:",
+        f"📅 **تغییر تاریخ فعال‌سازی واریز ریالی**\n\n"
+        f"📌 تاریخ فعلی: {admin_config.get('deposit_enable_date', '۳۰ مرداد‌ماه')}\n\n"
+        f"تاریخ جدید را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")]])
     )
     context.user_data["admin_action"] = "set_date"
@@ -1086,7 +1096,10 @@ async def admin_set_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        f"🔄 **تغییر آدرس ولت‌ها**\n\n🟣 ولت ترون فعلی:\n`{admin_config.get('trx_wallet', TRX_WALLET)}`\n\n🟢 ولت تتر فعلی:\n`{admin_config.get('usdt_wallet', USDT_WALLET)}`\n\nبرای تغییر، یکی از گزینه‌ها را انتخاب کنید:",
+        f"🔄 **تغییر آدرس ولت‌ها**\n\n"
+        f"🟣 ولت ترون فعلی:\n`{admin_config.get('trx_wallet', TRX_WALLET)}`\n\n"
+        f"🟢 ولت تتر فعلی:\n`{admin_config.get('usdt_wallet', USDT_WALLET)}`\n\n"
+        f"برای تغییر، یکی از گزینه‌ها را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("✏️ تغییر ولت ترون", callback_data="admin_edit_trx")],
             [InlineKeyboardButton("✏️ تغییر ولت تتر", callback_data="admin_edit_usdt")],
@@ -1099,7 +1112,9 @@ async def admin_edit_trx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        f"✏️ **تغییر آدرس ولت ترون (TRX)**\n\n📌 آدرس فعلی:\n`{admin_config.get('trx_wallet', TRX_WALLET)}`\n\nآدرس جدید را وارد کنید:",
+        f"✏️ **تغییر آدرس ولت ترون (TRX)**\n\n"
+        f"📌 آدرس فعلی:\n`{admin_config.get('trx_wallet', TRX_WALLET)}`\n\n"
+        f"آدرس جدید را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")]])
     )
     context.user_data["admin_action"] = "edit_trx"
@@ -1108,7 +1123,9 @@ async def admin_edit_usdt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        f"✏️ **تغییر آدرس ولت تتر (USDT-TRC20)**\n\n📌 آدرس فعلی:\n`{admin_config.get('usdt_wallet', USDT_WALLET)}`\n\nآدرس جدید را وارد کنید:",
+        f"✏️ **تغییر آدرس ولت تتر (USDT-TRC20)**\n\n"
+        f"📌 آدرس فعلی:\n`{admin_config.get('usdt_wallet', USDT_WALLET)}`\n\n"
+        f"آدرس جدید را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")]])
     )
     context.user_data["admin_action"] = "edit_usdt"
@@ -1117,7 +1134,11 @@ async def admin_change_limits(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        f"🎯 **تغییر حداقل مبالغ**\n\n💰 حداقل شرط: {admin_config.get('min_bet', MIN_BET):,} تومان\n💰 حداقل واریز: {admin_config.get('min_deposit', 500000):,} تومان\n💰 حداقل برداشت: {admin_config.get('min_withdraw', MIN_WITHDRAW):,} تومان\n\nکدام مبلغ را تغییر می‌دهید؟",
+        f"🎯 **تغییر حداقل مبالغ**\n\n"
+        f"💰 حداقل شرط: {admin_config.get('min_bet', MIN_BET):,} تومان\n"
+        f"💰 حداقل واریز: {admin_config.get('min_deposit', 500000):,} تومان\n"
+        f"💰 حداقل برداشت: {admin_config.get('min_withdraw', MIN_WITHDRAW):,} تومان\n\n"
+        f"کدام مبلغ را تغییر می‌دهید؟",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("✏️ حداقل شرط", callback_data="admin_edit_min_bet")],
             [InlineKeyboardButton("✏️ حداقل واریز", callback_data="admin_edit_min_deposit")],
@@ -1131,7 +1152,9 @@ async def admin_edit_min_bet(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        f"✏️ **تغییر حداقل شرط**\n\n📌 حداقل شرط فعلی: {admin_config.get('min_bet', MIN_BET):,} تومان\n\nمبلغ جدید را وارد کنید:",
+        f"✏️ **تغییر حداقل شرط**\n\n"
+        f"📌 حداقل شرط فعلی: {admin_config.get('min_bet', MIN_BET):,} تومان\n\n"
+        f"مبلغ جدید را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")]])
     )
     context.user_data["admin_action"] = "edit_min_bet"
@@ -1140,7 +1163,9 @@ async def admin_edit_min_deposit(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        f"✏️ **تغییر حداقل واریز**\n\n📌 حداقل واریز فعلی: {admin_config.get('min_deposit', 500000):,} تومان\n\nمبلغ جدید را وارد کنید:",
+        f"✏️ **تغییر حداقل واریز**\n\n"
+        f"📌 حداقل واریز فعلی: {admin_config.get('min_deposit', 500000):,} تومان\n\n"
+        f"مبلغ جدید را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")]])
     )
     context.user_data["admin_action"] = "edit_min_deposit"
@@ -1149,10 +1174,39 @@ async def admin_edit_min_withdraw(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        f"✏️ **تغییر حداقل برداشت**\n\n📌 حداقل برداشت فعلی: {admin_config.get('min_withdraw', MIN_WITHDRAW):,} تومان\n\nمبلغ جدید را وارد کنید:",
+        f"✏️ **تغییر حداقل برداشت**\n\n"
+        f"📌 حداقل برداشت فعلی: {admin_config.get('min_withdraw', MIN_WITHDRAW):,} تومان\n\n"
+        f"مبلغ جدید را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")]])
     )
     context.user_data["admin_action"] = "edit_min_withdraw"
+
+async def admin_manage_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    games = admin_config.get("games", {})
+    text = "🎲 **مدیریت بازی‌ها**\n\nوضعیت فعلی:\n"
+    for game, status in games.items():
+        text += f"✅ {game}: {'فعال' if status else 'غیرفعال'}\n"
+    keyboard = []
+    for game in games.keys():
+        keyboard.append([InlineKeyboardButton(f"🔄 تغییر وضعیت {game}", callback_data=f"admin_toggle_game_{game}")])
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")])
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_toggle_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    game = query.data.split("_")[3]
+    games = admin_config.get("games", {})
+    games[game] = not games.get(game, True)
+    admin_config["games"] = games
+    save_json(ADMIN_CONFIG_FILE, admin_config)
+    await query.edit_message_text(
+        f"✅ وضعیت بازی {game} با موفقیت تغییر کرد.\n"
+        f"📌 وضعیت جدید: {'فعال' if games[game] else 'غیرفعال'}",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 مدیریت بازی‌ها", callback_data="admin_manage_games")]])
+    )
 
 async def admin_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1184,6 +1238,7 @@ async def admin_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("🔍 **جستجوی کاربر**\n\n🆔 آیدی عددی کاربر را وارد کنید:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="admin_back")]]))
     context.user_data["admin_action"] = "search_user"
 
+# ======================== هندلرهای پیام ادمین ========================
 async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
@@ -1279,7 +1334,9 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 success += 1
             except:
                 fail += 1
-        await update.message.reply_text(f"✅ **پیام همگانی ارسال شد!**\n\n👥 ارسال موفق: {success} نفر\n❌ ناموفق: {fail} نفر")
+        await update.message.reply_text(
+            f"✅ **پیام همگانی ارسال شد!**\n\n👥 ارسال موفق: {success} نفر\n❌ ناموفق: {fail} نفر"
+        )
         context.user_data["admin_action"] = None
 
     elif action == "global_gift":
@@ -1308,11 +1365,23 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             add_transaction(uid, amount, "gift", f"جایزه همگانی - {occasion}")
             save_user(uid, user)
             try:
-                await context.bot.send_message(uid, f"🎁 **جایزه ویژه شرطینو**\n\nبه مناسبت **{occasion}**، مبلغ {amount:,} تومان به حساب شما اضافه شد.\n\n📝 {message}\n\n💰 موجودی جدید: {user['balance']:,} تومان", parse_mode="Markdown")
+                await context.bot.send_message(
+                    uid,
+                    f"🎁 **جایزه ویژه شرطینو**\n\n"
+                    f"به مناسبت **{occasion}**، مبلغ {amount:,} تومان به حساب شما اضافه شد.\n\n"
+                    f"📝 {message}\n\n"
+                    f"💰 موجودی جدید: {user['balance']:,} تومان",
+                    parse_mode="Markdown"
+                )
                 success += 1
             except:
                 fail += 1
-        await update.message.reply_text(f"✅ **شارژ همگانی با موفقیت انجام شد!**\n\n💰 مبلغ شارژ: {amount:,} تومان\n👥 ارسال موفق: {success} نفر\n❌ ناموفق: {fail} نفر")
+        await update.message.reply_text(
+            f"✅ **شارژ همگانی با موفقیت انجام شد!**\n\n"
+            f"💰 مبلغ شارژ: {amount:,} تومان\n"
+            f"👥 ارسال موفق: {success} نفر\n"
+            f"❌ ناموفق: {fail} نفر"
+        )
         context.user_data["admin_action"] = None
         context.user_data["global_gift_amount"] = 0
 
@@ -1321,7 +1390,12 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             target = int(text)
             user = get_user(target)
             await update.message.reply_text(
-                f"👤 **اطلاعات کاربر**\n\n🆔 آیدی: {target}\n👤 یوزرنیم: @{user['username'] or 'کاربر'}\n💰 موجودی: {user['balance']:,} تومان\n📊 وضعیت: {'🚫 مسدود' if user.get('banned', False) else '✅ فعال'}\n💳 واریز کرده: {'✅ بله' if user.get('has_deposited', False) else '❌ خیر'}",
+                f"👤 **اطلاعات کاربر**\n\n"
+                f"🆔 آیدی: {target}\n"
+                f"👤 یوزرنیم: @{user['username'] or 'کاربر'}\n"
+                f"💰 موجودی: {user['balance']:,} تومان\n"
+                f"📊 وضعیت: {'🚫 مسدود' if user.get('banned', False) else '✅ فعال'}\n"
+                f"💳 واریز کرده: {'✅ بله' if user.get('has_deposited', False) else '❌ خیر'}",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("➕ افزایش موجودی", callback_data=f"admin_add_{target}")],
                     [InlineKeyboardButton("➖ کاهش موجودی", callback_data=f"admin_remove_{target}")],
@@ -1338,23 +1412,16 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             target = int(text)
             user = get_user(target)
             await update.message.reply_text(
-                f"👤 **اطلاعات کاربر**\n\n🆔 آیدی: {target}\n👤 یوزرنیم: @{user['username'] or 'کاربر'}\n💰 موجودی: {user['balance']:,} تومان\n📊 وضعیت: {'🚫 مسدود' if user.get('banned', False) else '✅ فعال'}\n💳 واریز کرده: {'✅ بله' if user.get('has_deposited', False) else '❌ خیر'}\n📅 تاریخ عضویت: {user.get('created_at', 'نامشخص')}"
+                f"👤 **اطلاعات کاربر**\n\n"
+                f"🆔 آیدی: {target}\n"
+                f"👤 یوزرنیم: @{user['username'] or 'کاربر'}\n"
+                f"💰 موجودی: {user['balance']:,} تومان\n"
+                f"📊 وضعیت: {'🚫 مسدود' if user.get('banned', False) else '✅ فعال'}\n"
+                f"💳 واریز کرده: {'✅ بله' if user.get('has_deposited', False) else '❌ خیر'}\n"
+                f"📅 تاریخ عضویت: {user.get('created_at', 'نامشخص')}"
             )
         except:
             await update.message.reply_text("❌ آیدی نامعتبر است.")
-        context.user_data["admin_action"] = None
-
-    elif action == "new_campaign":
-        name = text
-        code = generate_referral_code()
-        campaigns = admin_config.get("campaigns", {})
-        campaigns[code] = {"name": name, "clicks": 0, "deposits": 0, "total_amount": 0, "users": []}
-        admin_config["campaigns"] = campaigns
-        save_json(ADMIN_CONFIG_FILE, admin_config)
-        link = f"https://t.me/shartinobot?start=camp_{code}"
-        await update.message.reply_text(
-            f"✅ **لینک تبلیغاتی ساخته شد!**\n\n🔗 لینک کمپین:\n{link}\n\n📋 برای کپی روی دکمه زیر کلیک کنید:\n\n📊 **آمار این لینک:**\n👥 ورودی: ۰ نفر\n💰 واریز: ۰ نفر | ۰ تومان\n📈 نرخ تبدیل: ۰٪"
-        )
         context.user_data["admin_action"] = None
 
 async def admin_add_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1363,7 +1430,10 @@ async def admin_add_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target = int(query.data.split("_")[2])
     context.user_data["admin_add_user"] = target
     await query.edit_message_text(
-        f"➕ **افزایش موجودی کاربر**\n\n👤 کاربر: @{get_user(target)['username'] or target}\n💰 موجودی فعلی: {get_user(target)['balance']:,} تومان\n\nمبلغ مورد نظر را وارد کنید:",
+        f"➕ **افزایش موجودی کاربر**\n\n"
+        f"👤 کاربر: @{get_user(target)['username'] or target}\n"
+        f"💰 موجودی فعلی: {get_user(target)['balance']:,} تومان\n\n"
+        f"مبلغ مورد نظر را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 انصراف", callback_data="admin_back")]])
     )
     context.user_data["admin_action"] = "admin_add_balance"
@@ -1374,7 +1444,10 @@ async def admin_remove_balance(update: Update, context: ContextTypes.DEFAULT_TYP
     target = int(query.data.split("_")[2])
     context.user_data["admin_remove_user"] = target
     await query.edit_message_text(
-        f"➖ **کاهش موجودی کاربر**\n\n👤 کاربر: @{get_user(target)['username'] or target}\n💰 موجودی فعلی: {get_user(target)['balance']:,} تومان\n\nمبلغ مورد نظر را وارد کنید:",
+        f"➖ **کاهش موجودی کاربر**\n\n"
+        f"👤 کاربر: @{get_user(target)['username'] or target}\n"
+        f"💰 موجودی فعلی: {get_user(target)['balance']:,} تومان\n\n"
+        f"مبلغ مورد نظر را وارد کنید:",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 انصراف", callback_data="admin_back")]])
     )
     context.user_data["admin_action"] = "admin_remove_balance"
@@ -1400,9 +1473,18 @@ async def handle_admin_balance_action(update: Update, context: ContextTypes.DEFA
         add_transaction(target, amount, "deposit", "واریز توسط ادمین")
         user["has_deposited"] = True
         save_user(target, user)
-        await update.message.reply_text(f"✅ موجودی کاربر @{user['username'] or target} افزایش یافت.\n💰 مبلغ: {amount:,} تومان\n💰 موجودی جدید: {user['balance']:,} تومان")
+        await update.message.reply_text(
+            f"✅ موجودی کاربر @{user['username'] or target} افزایش یافت.\n"
+            f"💰 مبلغ: {amount:,} تومان\n"
+            f"💰 موجودی جدید: {user['balance']:,} تومان"
+        )
         try:
-            await context.bot.send_message(target, f"✅ **موجودی شما افزایش یافت!**\n\n💰 مبلغ: {amount:,} تومان\n💰 موجودی جدید: {user['balance']:,} تومان")
+            await context.bot.send_message(
+                target,
+                f"✅ **موجودی شما افزایش یافت!**\n\n"
+                f"💰 مبلغ: {amount:,} تومان\n"
+                f"💰 موجودی جدید: {user['balance']:,} تومان"
+            )
         except:
             pass
 
@@ -1415,9 +1497,18 @@ async def handle_admin_balance_action(update: Update, context: ContextTypes.DEFA
         user["balance"] -= amount
         add_transaction(target, -amount, "admin_remove", "کاهش موجودی توسط ادمین")
         save_user(target, user)
-        await update.message.reply_text(f"✅ موجودی کاربر @{user['username'] or target} کاهش یافت.\n💰 مبلغ: {amount:,} تومان\n💰 موجودی جدید: {user['balance']:,} تومان")
+        await update.message.reply_text(
+            f"✅ موجودی کاربر @{user['username'] or target} کاهش یافت.\n"
+            f"💰 مبلغ: {amount:,} تومان\n"
+            f"💰 موجودی جدید: {user['balance']:,} تومان"
+        )
         try:
-            await context.bot.send_message(target, f"⚠️ **موجودی شما کاهش یافت!**\n\n💰 مبلغ: {amount:,} تومان\n💰 موجودی جدید: {user['balance']:,} تومان")
+            await context.bot.send_message(
+                target,
+                f"⚠️ **موجودی شما کاهش یافت!**\n\n"
+                f"💰 مبلغ: {amount:,} تومان\n"
+                f"💰 موجودی جدید: {user['balance']:,} تومان"
+            )
         except:
             pass
 
@@ -1428,14 +1519,21 @@ async def handle_admin_balance_action(update: Update, context: ContextTypes.DEFA
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ دستور نامعتبر. لطفاً از منو استفاده کنید.")
 
+# ======================== اصلی ========================
 def main():
     logging.basicConfig(level=logging.INFO)
-    schedule_withdrawals()
+    
+    # ✅ مدیریت حافظه برای جلوگیری از خاموش شدن
+    gc.enable()
+    gc.set_threshold(700, 10, 5)
+    
     app = Application.builder().token(TOKEN).build()
-
+    
+    # دستورات
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
-
+    
+    # کالبک‌های اصلی
     app.add_handler(CallbackQueryHandler(main_menu, pattern="^main_menu$"))
     app.add_handler(CallbackQueryHandler(game_menu, pattern="^game_menu$"))
     app.add_handler(CallbackQueryHandler(dice_game, pattern="^dice_game$"))
@@ -1446,30 +1544,30 @@ def main():
     app.add_handler(CallbackQueryHandler(coin_callback, pattern="^coin_"))
     app.add_handler(CallbackQueryHandler(slot_callback, pattern="^slot_"))
     app.add_handler(CallbackQueryHandler(football_callback, pattern="^football_"))
-
+    
+    # حساب من
     app.add_handler(CallbackQueryHandler(my_account, pattern="^my_account$"))
     app.add_handler(CallbackQueryHandler(deposit, pattern="^deposit$"))
     app.add_handler(CallbackQueryHandler(withdraw, pattern="^withdraw$"))
     app.add_handler(CallbackQueryHandler(withdraw_card, pattern="^withdraw_card$"))
     app.add_handler(CallbackQueryHandler(withdraw_wallet, pattern="^withdraw_wallet$"))
     app.add_handler(CallbackQueryHandler(transactions, pattern="^transactions$"))
-
+    
+    # سایر
     app.add_handler(CallbackQueryHandler(gift, pattern="^gift$"))
     app.add_handler(CallbackQueryHandler(trust, pattern="^trust$"))
     app.add_handler(CallbackQueryHandler(support, pattern="^support$"))
-    app.add_handler(CallbackQueryHandler(withdrawals_list, pattern="^withdrawals_list$"))
-    app.add_handler(CallbackQueryHandler(refresh_withdrawals, pattern="^refresh_withdrawals$"))
+    app.add_handler(CallbackQueryHandler(leaderboard, pattern="^leaderboard$"))
+    app.add_handler(CallbackQueryHandler(refresh_leaderboard, pattern="^refresh_leaderboard$"))
     app.add_handler(CallbackQueryHandler(check_gift, pattern="^check_gift$"))
     app.add_handler(CallbackQueryHandler(copy_referral, pattern="^copy_referral$"))
     app.add_handler(CallbackQueryHandler(copy_trx, pattern="^copy_trx$"))
     app.add_handler(CallbackQueryHandler(copy_usdt, pattern="^copy_usdt$"))
-    app.add_handler(CallbackQueryHandler(leaderboard, pattern="^leaderboard$"))
-    app.add_handler(CallbackQueryHandler(refresh_leaderboard, pattern="^refresh_leaderboard$"))
-
+    
+    # ادمین
     app.add_handler(CallbackQueryHandler(admin_stats, pattern="^admin_stats$"))
     app.add_handler(CallbackQueryHandler(admin_users, pattern="^admin_users$"))
     app.add_handler(CallbackQueryHandler(admin_settings, pattern="^admin_settings$"))
-    app.add_handler(CallbackQueryHandler(admin_campaign, pattern="^admin_campaign$"))
     app.add_handler(CallbackQueryHandler(admin_back, pattern="^admin_back$"))
     app.add_handler(CallbackQueryHandler(admin_close, pattern="^admin_close$"))
     app.add_handler(CallbackQueryHandler(admin_toggle_bot, pattern="^admin_toggle_bot$"))
@@ -1483,8 +1581,6 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_edit_min_withdraw, pattern="^admin_edit_min_withdraw$"))
     app.add_handler(CallbackQueryHandler(admin_manage_games, pattern="^admin_manage_games$"))
     app.add_handler(CallbackQueryHandler(admin_toggle_game, pattern="^admin_toggle_game_"))
-    app.add_handler(CallbackQueryHandler(admin_new_campaign, pattern="^admin_new_campaign$"))
-    app.add_handler(CallbackQueryHandler(admin_campaign_stats, pattern="^admin_campaign_stats$"))
     app.add_handler(CallbackQueryHandler(admin_ban, pattern="^admin_ban$"))
     app.add_handler(CallbackQueryHandler(admin_broadcast, pattern="^admin_broadcast$"))
     app.add_handler(CallbackQueryHandler(admin_global_gift, pattern="^admin_global_gift$"))
@@ -1492,7 +1588,8 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_search, pattern="^admin_search$"))
     app.add_handler(CallbackQueryHandler(admin_add_balance, pattern="^admin_add_"))
     app.add_handler(CallbackQueryHandler(admin_remove_balance, pattern="^admin_remove_"))
-
+    
+    # پیام‌ها
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_bet_amount))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_withdraw_amount))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_withdraw_info))
@@ -1500,7 +1597,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_balance_action))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_deposit_amount))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown))
-
+    
     print("🤖 ربات شرطینو روشن شد...")
     app.run_polling()
 
