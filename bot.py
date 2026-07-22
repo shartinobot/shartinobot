@@ -1,3 +1,4 @@
+```python
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -328,7 +329,7 @@ async def game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text("🎮 **بازی‌های شرطینو**\n\nلطفاً یک بازی را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ======================== بازی تاس (با ۲ تاس و انتخاب ضریب) ========================
+# ======================== بازی تاس ========================
 async def dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -378,7 +379,6 @@ async def dice_bet_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.user_data["dice_amount"] = amount
     
-    # نمایش ضرایب برای انتخاب
     keyboard = [
         [InlineKeyboardButton("🎯 زوج | ضریب ۲", callback_data="dice_coef_even")],
         [InlineKeyboardButton("🎯 فرد | ضریب ۲", callback_data="dice_coef_odd")],
@@ -415,7 +415,7 @@ async def dice_coef_selected(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
     
-    choice = query.data.split("_")[2]  # even, odd, high, same
+    choice = query.data.split("_")[2]
     context.user_data["dice_choice"] = choice
     
     await query.edit_message_text(
@@ -449,7 +449,6 @@ async def dice_roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text("🎲 **در حال انداختن ۲ تاس...**")
     
-    # انداختن ۲ تاس
     dice1 = await query.message.reply_dice(emoji="🎲")
     dice2 = await query.message.reply_dice(emoji="🎲")
     
@@ -457,7 +456,6 @@ async def dice_roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     value2 = dice2.dice.value
     total = value1 + value2
     
-    # بررسی نتیجه بر اساس انتخاب کاربر
     is_win = False
     coefficient = 0
     win_description = ""
@@ -482,7 +480,6 @@ async def dice_roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         coefficient = 0
         is_win = False
     
-    # نمایش انتخاب کاربر
     choice_names = {
         "even": "زوج",
         "odd": "فرد",
@@ -516,7 +513,6 @@ async def dice_roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result_text += f"تاس ۱: {value1} | تاس ۲: {value2}\n"
         result_text += f"📊 مجموع: {total}\n"
         result_text += f"🎯 انتخاب شما: {choice_name}\n"
-        result_text += f"❌ نتیجه: {win_description if not is_win else ''}\n"
         result_text += f"💰 مبلغ شرط: {bet_amount:,} تومان\n\n"
         result_text += f"💰 موجودی جدید: {user['balance']:,} تومان"
         add_transaction(user_id, -bet_amount, "bet", f"باخت در تاس - {choice_name}")
@@ -524,7 +520,6 @@ async def dice_roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user["total_bets"] = user.get("total_bets", 0) + 1
     save_user(user_id, user)
     
-    # پاک کردن اطلاعات context
     context.user_data["dice_amount"] = 0
     context.user_data["dice_choice"] = ""
     
@@ -954,7 +949,6 @@ async def deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⛔ حساب شما مسدود شده است!")
         return
     
-    # پیام حداقل واریز با دکمه تایید
     text = f"""💳 **واریز وجه**
 
 💰 حداقل مبلغ واریز: **۵۰۰,۰۰۰ تومان**
@@ -983,17 +977,14 @@ async def deposit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⛔ حساب شما مسدود شده است!")
         return
     
-    # دریافت اطلاعات ولت
     trx_wallet = admin_config.get("trx_wallet", TRX_WALLET)
     usdt_wallet = admin_config.get("usdt_wallet", USDT_WALLET)
     support = admin_config.get("support", SUPPORT)
     
-    # محاسبه هدیه واریز اول
     bonus_text = ""
     if not user.get("has_deposited", False):
         bonus_text = f"🎁 **هدیه واریز اول: ۵۰٪ (تا سقف ۵ میلیون تومان)**\n\n"
     
-    # متن صفحه پرداخت
     text = f"""💳 **صفحه پرداخت**
 
 {bonus_text}
@@ -1002,16 +993,7 @@ async def deposit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ❌ **تا اطلاع ثانوی غیرفعال می‌باشد.**
 
 ━━━━━━━━━━━━━━━━━━━━━━
-🟣 **آدرس ولت ترون (TRX-TRC20):**
-`{trx_wallet}`
-
-📋 **برای کپی کردن، روی آدرس بالا کلیک کنید.**
-
-━━━━━━━━━━━━━━━━━━━━━━
-🟢 **آدرس ولت تتر (USDT-TRC20):**
-`{usdt_wallet}`
-
-📋 **برای کپی کردن، روی آدرس بالا کلیک کنید.**
+📌 **برای کپی کردن آدرس ولت، روی دکمه‌های زیر کلیک کنید:**
 
 ━━━━━━━━━━━━━━━━━━━━━━
 📌 **نکات مهم:**
@@ -1024,18 +1006,22 @@ async def deposit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🆘 پشتیبانی: {support}"""
     
     keyboard = [
-        [InlineKeyboardButton("📋 کپی ولت ترون (TRX)", callback_data="copy_trx")],
-        [InlineKeyboardButton("📋 کپی ولت تتر (USDT)", callback_data="copy_usdt")],
+        [InlineKeyboardButton("🟣 کپی ولت ترون (TRX)", callback_data="copy_trx")],
+        [InlineKeyboardButton("🟢 کپی ولت تتر (USDT)", callback_data="copy_usdt")],
         [InlineKeyboardButton("✅ واریز انجام شد (ارسال تیکت)", callback_data="deposit_done")],
         [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
     ]
     
-    # تبدیل پیام فعلی به صفحه پرداخت (همان پیام)
-    await query.edit_message_text(
+    await query.message.reply_text(
         text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
+    
+    try:
+        await query.delete_message()
+    except:
+        pass
 
 async def copy_trx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1055,7 +1041,6 @@ async def deposit_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     user = get_user(user_id)
     
-    # ارسال تیکت به ادمین‌ها
     for admin_id in ADMIN_IDS:
         try:
             await context.bot.send_message(
@@ -1098,7 +1083,6 @@ async def confirm_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user = get_user(user_id)
     
-    # ادمین باید مبلغ را وارد کند
     context.user_data["admin_deposit_user"] = user_id
     context.user_data["admin_action"] = "admin_deposit_amount"
     
@@ -2003,3 +1987,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
