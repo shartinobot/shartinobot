@@ -1,3 +1,4 @@
+```python
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -32,10 +33,6 @@ GIFT_AMOUNT = int(os.environ.get("GIFT_AMOUNT", 50000))
 MIN_WITHDRAW = int(os.environ.get("MIN_WITHDRAW", 500000))
 COMMISSION_PERCENT = int(os.environ.get("COMMISSION_PERCENT", 30))
 INITIAL_BALANCE = int(os.environ.get("INITIAL_BALANCE", 0))
-
-# آیدی پشتیبانی ثابت
-SUPPORT = "@shartino_sup"
-EDUCATION_CHANNEL = "@shartino_amozesh"  # کانال آموزش واریز
 
 # ======================== وب‌سرور ========================
 flask_app = Flask(__name__)
@@ -159,7 +156,7 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
            f"💰 موجودی: {user['balance']:,} تومان\n\n" \
            f"✅ با ریال می‌تونی برداشت کنی\n" \
            f"👥 با دعوت هر دوست {GIFT_AMOUNT:,} تومان هدیه\n\n" \
-           f"🆘 پشتیبانی: {SUPPORT}\n\n" \
+           f"🆘 پشتیبانی: @shartino_sup\n\n" \
            f"از منوی زیر انتخاب کنید:"
     
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -197,7 +194,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💰 موجودی: {user['balance']:,} تومان\n\n"
             f"✅ با ریال می‌تونی برداشت کنی\n"
             f"👥 با دعوت هر دوست {admin_config.get('gift_amount', GIFT_AMOUNT):,} تومان هدیه\n\n"
-            f"🆘 پشتیبانی: {SUPPORT}\n\n"
+            f"🆘 پشتیبانی: @shartino_sup\n\n"
             f"از منوی زیر انتخاب کنید:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -963,22 +960,8 @@ async def deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • واریزها به صورت دستی تأیید می‌شوند
 
 ━━━━━━━━━━━━━━━━━━━━━━
-📌 **آیدی ادمین برای ارسال اسکرین‌شات:**
-
-🆔 {SUPPORT}
-
-📋 **روی آیدی کلیک کنید و اسکرین‌شات را ارسال کنید**
-
-━━━━━━━━━━━━━━━━━━━━━━
-📌 **آموزش واریز وجه:**
-
-📺 برای مشاهده آموزش تصویری واریز وجه، به کانال زیر مراجعه کنید:
-
-🆔 {EDUCATION_CHANNEL}
-
-📋 **روی آیدی کلیک کنید و آموزش را مشاهده کنید**
-
-🆘 پشتیبانی: {SUPPORT}"""
+📌 **روی آیدی کلیک کنید و اسکرین‌شات را ارسال کنید**
+🆘 **پشتیبانی:** @shartino_sup"""
     
     keyboard = [
         [InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]
@@ -1116,7 +1099,7 @@ async def handle_withdraw_info(update: Update, context: ContextTypes.DEFAULT_TYP
         f"✅ **درخواست برداشت شما ثبت شد!**\n\n"
         f"💰 مبلغ: {amount:,} تومان\n"
         f"🕒 درخواست شما در صف پردازش قرار گرفت.\n"
-        f"در صورت نیاز به پشتیبانی: {SUPPORT}",
+        f"در صورت نیاز به پشتیبانی: @shartino_sup",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 منوی اصلی", callback_data="main_menu")]])
     )
 
@@ -1780,3 +1763,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
